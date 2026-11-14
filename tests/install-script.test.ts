@@ -27,7 +27,9 @@ describe("install.sh (no network: syntax, dry run and uninstall safety)", () => 
     try {
       const { stdout } = await exec("bash", [installer, "--dry-run"], { env: env(h, { PERSISTARA_REPO: "file:///nonexistent/repo" }) });
       assert.ok(stdout.includes("Dry run complete; nothing was changed."));
-      for (const step of ["git -C", "install --frozen-lockfile", ".local/bin/persistara", ".bashrc", ".persistara-workspace"]) assert.ok(stdout.includes(step), step);
+      // With bash and no existing ~/.bashrc, the installer targets ~/.bash_profile on macOS and ~/.bashrc elsewhere.
+      const rcFile = process.platform === "darwin" ? ".bash_profile" : ".bashrc";
+      for (const step of ["git -C", "install --frozen-lockfile", ".local/bin/persistara", rcFile, ".persistara-workspace"]) assert.ok(stdout.includes(step), step);
       assert.deepEqual(await readdir(h), [], "the home directory is untouched");
     } finally { await rm(h, { recursive: true, force: true }); }
   });

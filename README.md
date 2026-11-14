@@ -1,166 +1,348 @@
 # Persistara
 
-**Agents that carry their memory and work forward.**
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Network: NEAR testnet](https://img.shields.io/badge/network-NEAR%20testnet-555555)](docs/evidence/near-0g-testnet-2026-11-07.json)
+[![Contract: authority.persistara-owner.testnet](https://img.shields.io/badge/contract-authority.persistara--owner.testnet-c2703d)](https://testnet.nearblocks.io/address/authority.persistara-owner.testnet)
+[![Storage: 0G Galileo](https://img.shields.io/badge/storage-0G%20Galileo-555555)](docs/evidence/0g-testnet-2026-11-07.json)
 
-Persistara is a new successor to Sofer: a terminal-first workspace for owner-controlled agents with recoverable encrypted memory, durable missions, bounded spending, and accountable agent-to-agent work.
+> A terminal workspace for an AI agent you own on NEAR: its memory is encrypted and recoverable, its work survives a crash, and a contract caps what it can spend.
 
-The selected stack is **NEAR ownership and settlement + 0G encrypted storage + NEAR AI inference**. This repository starts fresh. It selectively adapts reviewed Sofer primitives; it is not a renamed copy or a claim that old work was built during the hackathon.
+**Live on NEAR testnet:** the contract [`authority.persistara-owner.testnet`](https://testnet.nearblocks.io/address/authority.persistara-owner.testnet) · encrypted storage on 0G Galileo (Turbo) · verified inference through NEAR AI
 
-Repository: https://github.com/JemIIahh/persistara. Development visibility: private; the hackathon release must be public by its submission deadline.
+Built during the NEAR Hackathon. The first commit, `950b82c`, is dated 2026-11-06. Persistara is a successor to [Sofer](https://github.com/JemIIahh/sofer), not a copy of it: one file (the tool-interface declaration) is adapted from Sofer, seven more were read for reference only, and each is recorded with its hash in [`migration/provenance.json`](migration/provenance.json) and [`NOTICE`](NOTICE).
 
-## Install
+## What it is
 
-You do **not** need to clone the repository. Run one command:
+You give an agent a research task and a budget. The agent remembers what you told it, gathers sources, can hire one specialist agent to do part of the work, and pays that specialist only after you review what was delivered. Every step is written down before it happens, so a crash or a lost network reply never causes a second upload or a second payment.
+
+You run it from a terminal app. A web console exists as a companion.
+
+## The problem
+
+Agents today forget, repeat themselves, and hold keys they should not.
+
+- **Memory is rented.** It lives in one vendor's database. Lose the machine or the vendor and the agent starts over.
+- **Work is not durable.** A crash in the middle of a task means starting again, or worse, paying twice.
+- **The agent holds the wallet.** A leaked agent key can spend everything.
+
+Persistara answers each one:
+
+- **Memory** is encrypted on your machine, stored on 0G, and its current version is recorded on NEAR. You can rebuild it on a clean machine from a backup file and a recovery secret.
+- **Work** is journaled. Each upload, payment and model request gets an ID and a saved outcome before it is sent. After a crash the agent checks what happened instead of sending again.
+- **Money** sits in a contract. The agent's key can call three methods on that one contract and nothing else, within a per-job and a daily limit you set. You can pause it on chain.
+
+**Who holds the money:** the contract, not the agent. The owner's key is never loaded into the agent's process. The contract account has its own full-access key, and whoever holds that key can replace the contract's code ([Limits](#limits)).
+
+## Live on NEAR testnet
+
+| What | Where |
+| --- | --- |
+| Authority contract | [`authority.persistara-owner.testnet`](https://testnet.nearblocks.io/address/authority.persistara-owner.testnet) |
+| Owner | [`persistara-owner.testnet`](https://testnet.nearblocks.io/address/persistara-owner.testnet) |
+| Agent | `persistara-owner.testnet:research` |
+| Specialist (run by us) | [`worker.persistara-owner.testnet`](https://testnet.nearblocks.io/address/worker.persistara-owner.testnet) |
+| Storage | 0G Galileo testnet, chain ID 16602, Turbo |
+
+- Testnet only, with test tokens of no value. Nothing is on mainnet.
+- Every account here is ours: the owner, the agent and the specialist. Nobody outside the team has used Persistara yet.
+- This deployment runs the earlier contract build, where the agent's key sits on the owner account. The newer build, where the agent is its own NEAR account (`research.<owner>`), has been deployed only to throwaway testnet accounts ([evidence](docs/evidence/e2e-testnet-2026-11-13.md)).
+
+<details>
+<summary>Recorded transactions and the deployed code's hash</summary>
+
+| What | Transaction |
+| --- | --- |
+| Deployment (`DeployContract` + `new`) | [`C1jhawrZ…`](https://testnet.nearblocks.io/txns/C1jhawrZRTvMVKPMUF7fyiuN1uufyuMYvCWZCW1M7GkD) |
+| Memory checkpoint (`checkpoint_memory`) | [`DGqkRsaH…`](https://testnet.nearblocks.io/txns/DGqkRsaHe2RQE69epRFT3muH98YtXUBbTyGgwmjQBcCe) |
+| Job reservation (`create_job`) | [`J9oG7Ln5…`](https://testnet.nearblocks.io/txns/J9oG7Ln5zwbXc6GU3y4uMKmcQgtWA7xGiT5NH8XiYZD2) |
+| Acceptance and payout (`accept_job`) | [`FBiS4u1P…`](https://testnet.nearblocks.io/txns/FBiS4u1P52zHRa5nyhU3zJVe1BmY82R3ZaM1VE16rpKA) |
+
+- **Code hash on chain:** `GCPU1ejMZ6CPDLyT4k9GorYuXtAv5sn49jXWVzDMsKYQ`. The command under [Check the live deployment](#check-the-live-deployment) reads it back.
+- **Newer build (agent as its own account):** committed at [`contracts/artifacts/`](contracts/artifacts/authority-manifest.json), code hash `4Toz9TFJg38qTg3dnGoBd8uDySRHyfhDyr6n6McXz6vq`.
+- The rest is in [`docs/evidence/near-0g-testnet-2026-11-07.json`](docs/evidence/near-0g-testnet-2026-11-07.json).
+
+</details>
+
+## Try it on your machine (about 2 minutes)
+
+You need `git`, Node.js 20 or newer with `corepack` (or pnpm 10.26), on macOS or Linux. No accounts, keys, funds, `.env` file or model key. pnpm downloads the pinned Node 24 itself and leaves your global Node alone.
+
+```sh
+git clone https://github.com/JemIIahh/persistara.git && cd persistara
+pnpm install --frozen-lockfile
+pnpm check
+```
+
+`pnpm check` typechecks, builds and runs the tests in about 25 seconds. It ends with:
+
+```
+ℹ tests 339
+ℹ suites 58
+ℹ pass 339
+ℹ fail 0
+```
+
+Then four drills. Each one kills or removes something and shows what survives. They use local stand-ins for the chain, the storage and the model, and every one labels its output as a fixture.
+
+**1. Recover memory on a clean process.** The original keys and index are deleted, then a new process restores from the encrypted backup.
+
+```sh
+pnpm -s memory:recover:fixture
+```
+
+```json
+{
+  "evidence": "LOCAL_FIXTURE_ONLY",
+  "phase": "recover",
+  "version": 3,
+  "records": 3,
+  "currentFacts": 2,
+  "recoveredEpochs": [1, 2],
+  "uploaderKeyUsed": false,
+  "signingKeyUsed": false,
+  "originalStateAvailable": false
+}
+```
+
+Three records come back across two key generations, with no upload key, no signing key and none of the original state.
+
+**2. Kill a memory write halfway.** Processes are stopped right after the upload and right after the checkpoint. New processes pick up.
+
+```sh
+pnpm -s memory:writes:fixture
+```
+
+```json
+{
+  "evidence": "LOCAL_FIXTURE_ONLY",
+  "phase": "verify",
+  "status": "committed",
+  "version": 1,
+  "recordUploads": 1,
+  "manifestUploads": 1,
+  "checkpointBroadcasts": 1,
+  "originalProcessResumed": false
+}
+```
+
+One upload of each kind and one checkpoint: nothing was sent twice.
+
+**3. Crash a research mission.** The worker dies after its first source. A new process resumes.
+
+```sh
+pnpm -s missions:recover:fixture
+```
+
+```json
+{"fixture":true,"workflow":"source-dossier","abruptCrashRecovered":true,"capturedSources":2,"completedReadsRepeated":0,"artifacts":1,"ownerReviews":1,"nearAiUsed":false,"publicTransactions":0}
+```
+
+Both sources are captured and the finished one is not fetched again.
+
+**4. Lose a model reply.** A chat request is sent and its answer never arrives.
+
+```sh
+pnpm -s conversation:demo
+```
+
+The output (shortened here) shows the session refusing new messages until the owner resolves the lost request, and never resending it, because it may have been charged:
+
+```json
+{
+  "fixture": true,
+  "note": "Synthetic provider and data; not a real model.",
+  "step2_lostOutcome": { "state": "unknown", "unknownAttempt": true, "costRecordedAsZero": false },
+  "step3_sessionFencedAndNotResent": { "newMessageRefused": true, "modelRequestsSoFar": 3 },
+  "step4_ownerResolvedThenContinues": { "state": "completed", "attemptStillUnknownInJournal": true, "modelRequests": 4 },
+  "step5_encryptedBackupRoundTrip": { "sessions": 1, "bundleContainsPlaintext": false, "identicalAfterRestore": true }
+}
+```
+
+Outputs above are from a run on 2026-11-14.
+
+**More tests.** `pnpm test:e2e` runs 11 browser tests of the web console (first `pnpm exec playwright install chromium`). `pnpm contract:check` runs 36 Rust tests and six scenarios against the compiled contract on a local NEAR node; it needs Rust 1.96 and cargo-near 0.22 and takes about an hour.
+
+### Check the live deployment
+
+No key is needed. This reads the contract's code from the chain and writes it only if its hash is the recorded one:
+
+```sh
+pnpm contract:fetch --contract authority.persistara-owner.testnet \
+  --expected-hash GCPU1ejMZ6CPDLyT4k9GorYuXtAv5sn49jXWVzDMsKYQ --out /tmp/persistara-authority.wasm
+```
+
+You see status `written` and the matching hash. To read a recorded transaction yourself, ask the archival RPC (older transactions leave the standard one):
+
+```sh
+curl -s https://archival-rpc.testnet.near.org -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"EXPERIMENTAL_tx_status","params":{"tx_hash":"C1jhawrZRTvMVKPMUF7fyiuN1uufyuMYvCWZCW1M7GkD","sender_account_id":"persistara-owner.testnet","wait_until":"EXECUTED"}}'
+```
+
+You see the actions `DeployContract` and `FunctionCall` `new`, and a `SuccessValue` status.
+
+## Run your own agent
+
+Install the command without cloning (it works for everyone once the repository is public):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/JemIIahh/persistara/main/install.sh | bash
 ```
 
-Then open a new terminal and run `persistara --help`. **First time? Follow the [getting-started guide](docs/GETTING-STARTED.md)** for the whole path: accounts, testnet funds, deploying your own agent, signing in and optional AI chat. It builds the CLI, adds `persistara` to your PATH and creates a private workspace in `~/.persistara-workspace`. It needs `git` and either `pnpm` or Node.js, and no `sudo`. To remove it: `curl -fsSL <same url> | bash -s -- --uninstall` (your workspace is kept).
+It builds the CLI, puts `persistara` on your PATH and creates a private workspace in `~/.persistara-workspace`. It needs no `sudo`, and `--dry-run` shows every step first. It does not create accounts or deploy a contract.
 
-- **Repository still private?** The URL above only works for everyone once the repository is public. Collaborators with GitHub access can run the same script without cloning: `gh api repos/JemIIahh/persistara/contents/install.sh -H "Accept: application/vnd.github.raw" | bash`.
-- **Want to read it first?** `curl -fsSL <url> -o install.sh && less install.sh && bash install.sh`. Preview with `--dry-run`; pin a version with `--ref <tag-or-commit>`.
-- **What it does not do:** it does not deploy a contract or create accounts. You still need your own deployed authority, its exact WASM and your NEAR account. See [INSTALL.md](docs/INSTALL.md) for every change it makes and what you still need.
+Then follow [Getting started](docs/GETTING-STARTED.md): make a testnet account, deploy your own contract and agent with `pnpm near:deploy` (a dry run by default), store your owner key in the encrypted key store with `persistara wallet add`, and open the app with `persistara`.
 
-## Verify it yourself (no accounts, keys, funds or network)
+In the app, type `/` to see the commands. `/connect` signs you in, `/new` writes a research brief, `/run` collects its sources, `/review` records your review, `/missions` and `/open 1` reopen saved work, and `/pause` stops the agent on chain.
 
-For reviewers and automated checks. Everything below ran from a clean clone with no `.env`, no contract artifact and no secrets. Needs `git`, Node.js 20+ with `corepack` (or pnpm 10.26) and an internet connection for `pnpm install`; pnpm downloads the pinned Node 24 runtime itself.
+**AI chat is off by default.** Turning it on needs your own NEAR AI key and a deliberate setting ([how](docs/TERMINAL.md#conversation-sessions-offline-core)). The assistant can only read: it lists missions, opens one, and recalls memory. It cannot spend, sign, upload or pause.
 
-```sh
-git clone https://github.com/JemIIahh/persistara.git && cd persistara
-pnpm install --frozen-lockfile
-pnpm check                      # typecheck + build + 339 tests / 58 suites, about 25 s -> "ℹ pass 339 / ℹ fail 0"
-pnpm memory:recover:fixture     # fresh process recovers encrypted memory from a backup -> "originalStateAvailable": false, keys unused
-pnpm memory:writes:fixture      # processes killed mid-write, fresh ones reconcile -> recordUploads 1, manifestUploads 1, checkpointBroadcasts 1
-pnpm missions:recover:fixture   # crash mid-mission, resume -> "abruptCrashRecovered":true, "completedReadsRepeated":0
-pnpm conversation:demo          # synthetic AI-chat walkthrough (no model/key): read-only lookup, lost request is never resent, owner resolution, encrypted backup round trip
-./bin/persistara --help         # the terminal app; without configuration `./bin/persistara status` stops with NOT_CONFIGURED and creates no state
+**Docs:** [Getting started](docs/GETTING-STARTED.md) · [Install](docs/INSTALL.md) · [Deploy on testnet](docs/DEPLOY-TESTNET.md) · [Terminal](docs/TERMINAL.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Contract](docs/CONTRACTS.md)
+
+## How it works
+
+1. **Own.** The owner registers an agent on the authority contract, sets a spending policy and funds its treasury. The agent gets a restricted key.
+2. **Remember.** A fact is encrypted on the owner's machine, uploaded to 0G, and the new memory version is recorded on NEAR. A stale writer is rejected.
+3. **Work.** A mission collects sources from approved public sites and saves each capture as it goes.
+4. **Hire.** A specialist signs a quote. The owner reviews the exact price, and the contract reserves the money.
+5. **Deliver.** The specialist uploads an encrypted result and records its hash on chain.
+6. **Review and pay.** The owner reviews that exact result. The contract pays once. If nothing is delivered in time, the money returns to the treasury.
+
+```mermaid
+sequenceDiagram
+    participant O as Owner
+    participant A as Agent
+    participant C as Authority contract (NEAR)
+    participant S as 0G storage
+    participant W as Specialist
+    O->>C: register agent, set limits, fund treasury
+    A->>S: upload encrypted memory
+    A->>C: checkpoint_memory (new version)
+    W-->>O: signed quote
+    O->>A: approve the exact price
+    A->>C: create_job (reserve within limits)
+    W->>S: upload encrypted result
+    W->>C: deliver (hash of the result)
+    O->>A: approve the exact result
+    A->>C: accept_job
+    alt delivered and accepted
+        C-->>W: pay once
+    else not delivered in time
+        C-->>C: return the money to the treasury
+    end
 ```
 
-The fixture drills and `conversation:demo` are clearly labeled synthetic and never substitute for live operations. Optional heavier checks: `pnpm contract:check` (needs Rust 1.96 + cargo-near 0.22, about an hour: 35 Rust tests and six deployed-WASM sandbox scenarios) and `pnpm test:e2e` (11 browser tests; first run `pnpm exec playwright install chromium`).
+Four things are kept apart, and proof of one is never shown as proof of another:
 
-### Check the live testnet deployment with public data only
+- **NEAR** says who owns the agent, what it may spend, and what was paid.
+- **0G** holds encrypted bytes. A NEAR record pointing at them does not prove they are still available.
+- **Encryption keys** decide who can read. They are separate from the wallet keys.
+- **NEAR AI** evidence shows a reply came from the attested model. It does not show the reply is correct.
 
-The real deployment is `authority.persistara-owner.testnet` (NEAR testnet). No key is needed to confirm it:
+## Screenshots
 
-```sh
-# 1. The deployed code is the recorded build: prints status "written" and the matching hash (writes only if the hash matches)
-pnpm contract:fetch --contract authority.persistara-owner.testnet --expected-hash GCPU1ejMZ6CPDLyT4k9GorYuXtAv5sn49jXWVzDMsKYQ --out /tmp/persistara-authority.wasm
+The terminal app, captured on 2026-11-09 against the live testnet workspace.
 
-# 2. A recorded transaction: the deployment (expect actions DeployContract + FunctionCall "new", and a SuccessValue status)
-curl -s https://archival-rpc.testnet.near.org -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"EXPERIMENTAL_tx_status","params":{"tx_hash":"C1jhawrZRTvMVKPMUF7fyiuN1uufyuMYvCWZCW1M7GkD","sender_account_id":"persistara-owner.testnet","wait_until":"EXECUTED"}}'
-```
+| Start screen | Command picker |
+| --- | --- |
+| ![The Persistara terminal start screen: a welcome panel with the agent's ID and three starting commands, a command box at the bottom, and a status line showing the agent active with 0.08 NEAR](docs/images/terminal-home-2026-11-09.png) | ![The command picker open in the terminal: /connect, /missions, /new, /open and /run, each with a one-line description](docs/images/terminal-commands-2026-11-09.png) |
 
-Other recorded transactions in [`docs/evidence/near-0g-testnet-2026-11-07.json`](docs/evidence/near-0g-testnet-2026-11-07.json) check the same way (use the archival endpoint; older transactions leave the standard RPC): memory checkpoint `DGqkRsaHe2RQE69epRFT3muH98YtXUBbTyGgwmjQBcCe` (`checkpoint_memory`), job reservation `J9oG7Ln5zwbXc6GU3y4uMKmcQgtWA7xGiT5NH8XiYZD2` (`create_job`) and acceptance/payout `FBiS4u1P52zHRa5nyhU3zJVe1BmY82R3ZaM1VE16rpKA` (`accept_job`).
+The web console, from a production build run against the fixture data of its browser tests. The missions and payments shown are test data, not testnet data.
 
-### What a reviewer cannot reproduce, and where the evidence is
+| Mission desk | Reviewing a specialist's quote |
+| --- | --- |
+| ![The web console's mission desk: a list of research missions with their status and a detail panel](docs/images/mission-desk-desktop.png) | ![The quote review dialog: the specialist's signed price and terms shown for approval before any money is reserved](docs/images/commerce-quote-review.png) |
 
-| Claim | Why it needs the owner | Evidence |
-| --- | --- | --- |
-| Owner login, pause/resume | Requires the owner's wallet key | [owner-wallet-login](docs/evidence/owner-wallet-login-2026-11-07.json), [native-terminal](docs/evidence/native-terminal-2026-11-08.json) |
-| Real 0G storage round trip | Needs an uploader wallet and funds | [0g-testnet](docs/evidence/0g-testnet-2026-11-07.json) |
-| Real NEAR AI request with attestation, encryption, signature and tool call | Needs a paid NEAR AI key | [inference-spike](docs/evidence/inference-spike-2026-11-11.json) (one request; streaming failed its one attempt and is off) |
+## What is verified, and what is not
 
-You can run the real thing against your own deployment: see [INSTALL.md](docs/INSTALL.md). Contract builds are not reproducible, so a rebuilt WASM will not match an existing deployment's code hash; `pnpm contract:fetch` recovers the deployed bytes against a hash you supply.
+**What the contract enforces**, as long as the deployed code is the committed code:
 
-## Start in the terminal
+- only the owner can pause, change the policy or withdraw;
+- the agent's key can reserve a job only for an approved specialist, within the per-job limit and the daily limit, and only from money already in the treasury;
+- a job pays at most once, and only for the result whose hash was reviewed;
+- a paused or revoked agent cannot write memory or reserve money;
+- an undelivered job returns its money to the treasury after the deadline.
 
-The primary interface is now an interactive terminal application with a persistent composer, command picker, scrollable session and live working/status feedback. In the configured project:
+**What has run on testnet.**
 
-```sh
-pnpm build
-./bin/persistara
-```
+- **Storage.** An encrypted file was uploaded to 0G, read back with a Merkle proof and decrypted, then read again by a separate process with no upload key ([evidence](docs/evidence/0g-testnet-2026-11-07.json)).
+- **Memory.** A memory checkpoint was recorded on NEAR, and a clean process recovered the fact from an encrypted backup. A stale checkpoint was rejected ([evidence](docs/evidence/near-0g-testnet-2026-11-07.json)).
+- **Payment.** A 0.01 NEAR job was reserved, delivered and paid once. Accepting it again paid nothing more, and a 0.03 NEAR job over the limit was rejected by the contract ([evidence](docs/evidence/near-0g-testnet-2026-11-07.json)). A second job with a real specialist delivery was also paid once ([evidence](docs/evidence/specialist-commission-2026-11-07.json)).
+- **Crash recovery.** A real mission was stopped after its first source and finished by a new process without fetching that source again ([evidence](docs/evidence/native-terminal-2026-11-08.json)).
+- **A stolen agent key.** Holding only the agent's key, nine attacks were tried: pause, withdraw, transfer, add a key, delete a key, deploy code, call another contract, attach NEAR, and write another owner's agent. All nine were refused ([evidence](docs/evidence/e2e-testnet-2026-11-13.md)).
+- **Pause.** The owner paused the agent from the encrypted key store, and the agent's next write was refused with `ERR_AGENT_PAUSED` ([same evidence](docs/evidence/e2e-testnet-2026-11-13.md)).
+- **Inference.** One NEAR AI request passed attestation, encryption, signature and tool-call checks, and one chat message in the terminal returned a verified reply that used a read-only tool ([evidence](docs/evidence/inference-spike-2026-11-11.json), [runbook](docs/INFERENCE-ACCEPTANCE.md)).
 
-After building, run `pnpm cli` for normal use, or `pnpm cli:dev` to rebuild source changes. Connect through the external original-owner NEAR CLI keychain, then use `/new`, `/run`, `/review`, `/missions` and `/open 1`. `/help` starts small; topic help and Tab completion make other workflows discoverable. The same terminal supports signed specialist quote/delivery review, bounded reservation/settlement, receipts, source-aware memory recall and recovery. Interrupted source work resumes under the same durable mission ID. No browser or AI credits are required for this implemented workflow. See [terminal setup, commands and exact limits](docs/TERMINAL.md).
+The stolen-key, pause and chat runs used throwaway testnet accounts, not the deployment in the table above.
 
-Real native acceptance verified owner login, memory-cache recovery and a source mission interrupted after its first capture, resumed/reviewed/reopened in fresh CLI processes with the same artifact. No upload, transaction or inference was used. See [terminal acceptance evidence](docs/evidence/native-terminal-2026-11-08.json).
+**What a reviewer cannot rerun**, because it needs a key or funds: the owner login and pause, the 0G upload, and the paid model request. The evidence files above record each one with its transaction hashes.
 
-**AI chat is disabled by default and only partly live-verified.** A durable conversation/session core with three read-only tools is tested offline with clearly labeled synthetic providers. One real non-streaming NEAR AI request (fictional data) has passed full attestation, encryption, signature and tool-call verification ([evidence](docs/evidence/inference-spike-2026-11-11.json)); streaming failed its one live attempt and stays off, and one real chat message in the terminal (on a throwaway testnet deployment, 2026-11-13) returned a verified reply that used a read-only tool, after a bounded retry of the free attestation-collateral fetch. Enabling it needs deliberate operator opt-in and your own key (see [terminal docs](docs/TERMINAL.md#conversation-sessions-offline-core) and [acceptance runbook](docs/INFERENCE-ACCEPTANCE.md)). This release is an interactive mission workspace; it does not claim complete Sofer conversational/daemon/Telegram parity. The web console remains available, and further visual redesign is deferred.
+**What is ours.** The owner, the agent and the specialist are all run by the team. The specialist is one curated worker that exchanges signed files with the owner; it is not an open market.
 
-## Current implementation
+## Built with
 
-Implemented: typed storage and registry boundaries, authenticated memory encryption, encrypted manifests, idempotent memory writes, checkpoint conflict handling, recovery from a committed head, and a local disk-backed blob adapter. Provider adapters connect the pinned 0G and NEAR AI SDKs through isolated processes, with strict evidence validation and reproducible diagnostic/spike commands. A Rust NEAR authority contract now implements owner/delegate permissions, revocation, memory checkpoints, native budgets, escrow, callbacks and timeout refunds.
+- **Contract (Rust):** `near-sdk` 5.30.1; `near-workspaces` 0.24.0 for the tests on a local node; Rust 1.96 and `cargo-near` 0.22 for the build.
+- **Chain and wallets:** `near-api-js` 7.4.0; `@hot-labs/near-connect` 0.12.0 for browser wallets.
+- **Storage:** `@0gfoundation/0g-storage-ts-sdk` 1.2.13 with `ethers` 6.13.1.
+- **Inference:** `@nearai/inference-sdk` 0.2.1.
+- **Encryption:** Node's built-in AES-256-GCM and scrypt; `jose` 6.2.15 for the specialist's encrypted deliveries.
+- **Terminal:** `ink` 8 and `react` 19.
+- **Storage on disk:** Node's built-in SQLite.
+- **Tooling:** TypeScript 5.9, Node's test runner, Playwright, Vite.
+- **AI coding tools:** Claude Code.
 
-NEAR clients now wire memory checkpoints and job reservation/acceptance through a restricted signer process and a durable SQLite transaction journal. Finalized reads and same-transaction reconciliation keep uncertain outcomes separate from success or failure.
+## Repository
 
-Owner recovery now includes encrypted backup bundles, historical keyrings, authenticated snapshot restoration and a private full-text recall cache with source/revision metadata. A separate-process drill restores after deleting the original runtime state. See [recovery commands and boundaries](docs/RECOVERY.md).
+| Path | What it holds |
+| --- | --- |
+| `contracts/authority` | The authority contract (Rust): owners, agents, memory versions, budgets, jobs and payouts |
+| `contracts/integration-tests` | Scenarios that run the compiled contract on a local NEAR node |
+| `contracts/artifacts` | The committed contract builds and their hashes |
+| `packages/terminal` | The terminal app: commands, reviews and the owner sign-in |
+| `packages/owner` | Owner proof, the encrypted key store and its separate signer processes, the local console server |
+| `packages/near` | The agent's restricted signer and its transaction journal |
+| `packages/memory`, `packages/recovery` | Encrypted memory, the write journal, backups and the recovery kit |
+| `packages/storage` | The 0G adapter, run in an isolated process |
+| `packages/runtime` | Missions and the source collector |
+| `packages/commerce` | Signed quotes, encrypted deliveries and payout checks |
+| `packages/conversation`, `packages/inference` | Chat sessions, and the NEAR AI adapter with its evidence checks |
+| `packages/crypto`, `packages/protocol` | The encryption envelope and shared types |
+| `apps/console` | The companion web console |
+| `scripts` | The CLI entry point, the deploy tool, the drills and the acceptance commands |
+| `docs/evidence` | Records of the testnet runs |
 
-A portable encrypted owner recovery kit now covers both historical memory keys and the separate buyer delivery-recipient key, with immutable signed commission descriptors. Its verify/recover CLI requires an independently checked fingerprint, never loads the original `.env` during restore, and uses public reads only. Physical off-device custody remains unverified until a real separate-device drill is observed. See [kit export, transfer and restore commands](docs/RECOVERY-KIT.md).
+[AGENTS.md](AGENTS.md) has the rules for changing the code, and [plans/README.md](plans/README.md) has the status of each piece of work.
 
-Durable memory writes now journal encrypted intents, ciphertext roots and exact checkpoint attempts before external effects. Interrupted uploads are probed without re-uploading; interrupted checkpoints reconcile through the same signer journal. Leases fence stale processes. See [write, resume and reconciliation commands](docs/MEMORY-WRITES.md), including the cases that remain unknown and must not be retried.
+<details>
+<summary>All documentation</summary>
 
-Owner-controlled runtime/memory-key rotation now prepares verified replacement backups, drains and holds the original journals, atomically revokes/advances authority, and verifies restricted account-key replacement. Owner signing stays outside the runtime through reviewable unsigned requests. A new sandbox flow writes under the new epoch and recovers historical memory after both runtimes are removed. See [owner rotation and signing boundaries](docs/OWNER-ROTATION.md).
-
-Real 0G Turbo acceptance now passes: an application-encrypted specimen was uploaded, finalized, retrieved with a Merkle proof and decrypted, then retrieved/decrypted in another process without uploader credentials. Durable acceptance intents fence resubmission after interruption; the uploader enforces a per-transaction testnet cost ceiling. See [sanitized live evidence](docs/evidence/0g-testnet-2026-11-07.json).
-
-Public NEAR acceptance now passes on `authority.persistara-owner.testnet`: a restricted runtime committed memory backed by real Turbo blobs, a clean process recovered the first record from an encrypted owner backup, and a fictional job settled 0.01 testnet NEAR once. Stale checkpoints and over-budget reservations were rejected by the contract. External owner/specialist signing uses the official NEAR CLI keychain. See [public deployment, recovery and settlement evidence](docs/evidence/near-0g-testnet-2026-11-07.json).
-
-The local owner console now connects external NEAR wallets, verifies the original registered owner through a one-time NEP-413 proof, displays finalized authority/runtime/backup readiness and supports reviewed pause/resume requests. Its durable journal fences unknown wallet handoffs across restart. The real original owner's off-chain CLI-keychain proof passes; four browser tests use a clearly labeled disposable wallet, and actual pause/resume receipts pass against deployed WASM in sandbox. Real browser-provider approval remains unverified. See [owner console setup, custody and recovery limits](docs/OWNER-CONSOLE.md).
-
-The redesigned mission desk now persists zero-spend source-collection briefs, captures approved public HTTPS sources, saves a local dossier and records review of its exact fingerprint. Fenced worker leases retain progress across interruptions; completed source captures are not fetched again on resume. The owner-authenticated API exposes journal-backed missions, source artifacts and replayable event cursors. A real two-source NEAR/0G documentation mission completed without AI, upload or public transaction. See [mission setup and recovery limits](docs/MISSIONS.md) and [sanitized live evidence](docs/evidence/mission-source-dossier-2026-11-07.json).
-
-[Optional web-console design and explicitly labeled fixture captures](docs/CONSOLE-DESIGN.md).
-
-Signed specialist commissioning now links one curated worker to a mission through domain-bound NEP-413 quotes and delivery receipts. Separate JWE recipient keys protect briefs/dossiers on 0G; exact owner review precedes bounded NEAR acceptance, and finalized payout callbacks determine payment completion. The separate worker CLI keeps wallet signing in the official external keychain. Fixed upload/job intents and canonical signer journals survive interruption without replacement effects. Public testnet acceptance completed a real two-source encrypted delivery and paid 0.01 NEAR once, retained across a host restart; a fresh process decrypted the result using a copied recipient key without runtime/uploader credentials. See [sanitized live commissioning evidence](docs/evidence/specialist-commission-2026-11-07.json) and [setup, signed-file exchange and recovery limits](docs/COMMISSIONS.md).
-
-**Not implemented yet:** verified streaming, mainnet support, daemon/Telegram integration, embeddings, model-driven research/synthesis, multi-tenant/SSE mission API, browser new-agent enrollment or rotation execution. Two-fact/source/revision recovery, live key rotation, physical cross-machine/off-device backup drills and the five-trial benchmark remain release gates. Paid inference has been accepted only once (one non-streaming request, see the AI chat note above); sustained use, cost controls and streaming are not accepted. The live specimen tests mechanical storage/settlement, not research output or model quality. Local fixtures and disposable NEAR sandbox results remain separate from public-chain evidence.
-
-## Development
-
-- Node.js >=24.22.1. pnpm downloads the pinned project-local Node 24.22.2 runtime; the global installation is unchanged.
-- pnpm 10.26.0.
-- For contracts: Rust 1.96.0 (selected by `rust-toolchain.toml`) and cargo-near 0.22.0. See [contract setup and exact semantics](docs/CONTRACTS.md).
-
-```sh
-pnpm install
-pnpm check
-```
-
-`pnpm check` typechecks, builds, and runs **339 TypeScript tests in 58 suites**, including local HTTP security checks. No credentials, faucet, or public network is needed to execute those tests after installation; the HTTP tests bind temporary loopback ports.
-
-Verification covers authenticated encryption, owner backup binding, historical key recovery, concurrent revisions, cache corruption, failed/contended rebuilds, provider contracts, signer restart/reconciliation and finalized client semantics. Offline tests remain separate from deployed-WASM sandbox tests and public NEAR/0G acceptance evidence.
-
-For provider setup, run `pnpm provider:doctor` and follow [live integration instructions](docs/INTEGRATIONS.md). Missing prerequisites exit nonzero; the commands never silently substitute test fixtures.
-
-Run `pnpm memory:recover:fixture` for an explicitly local clean-process recovery drill. Live `pnpm memory:recover` requires the configured public deployment, owner backup and real 0G references; it never falls back to that fixture.
-
-Run `pnpm memory:writes:fixture` for an explicitly local process-exit drill at upload/checkpoint boundaries. Fresh processes reconcile each interruption and observe one record upload, one manifest upload and one checkpoint effect. Live write commands use configured providers; they never substitute this fixture.
-
-```sh
-pnpm contract:check
-```
-
-Contract checks pass **35 Rust unit tests and six sandbox scenarios**, plus formatting, Clippy and optimized WASM compilation. Application scenarios commit memory, settle once, reconcile interruptions, rotate runtime/memory keys, reject revoked keys, and recover in a fresh process after removing runtime keys/journals. The fifth scenario validates external owner pause/resume signing and exact finalized receipt reconciliation without supplying owner/runtime secrets to the application. The sixth scenario verifies externally signed specialist envelopes, restart after reservation/acceptance, one actual sandbox payout and recipient-key recovery after original buyer state is removed. Storage and source/backup readiness fixtures remain explicit. These tests require no AI credentials or public funds. Review [contract rules](docs/CONTRACTS.md), the pre-public-deployment state-layout change, and [client recovery limits](docs/NEAR-CLIENTS.md) before public funding.
-
-Run `pnpm owner:console` to build and serve the existing agent's mission desk and owner controls at **http://127.0.0.1:3377**. It requires the configured public deployment and owner-local recovery files; it has no fake fallback. `pnpm web:build` builds the browser assets with a server-module boundary guard. `pnpm test:e2e` runs 11 explicitly labeled Chromium fixture tests after installing the pinned test browser (`pnpm exec playwright install chromium`).
-
-Run `pnpm missions:recover:fixture` for a clearly labeled three-process source-dossier crash/recovery/review drill. It uses synthetic public text and advances the fixture clock beyond the lease; it has no live-network, AI, upload or payment effect. `pnpm runtime:test` runs mission, commission, specialist and commission-HTTP invariants separately.
-
-## Build specification
-
-- [Getting started: from nothing to chatting with your own agent](docs/GETTING-STARTED.md)
-- [Install, what it changes and uninstall](docs/INSTALL.md)
-- [Deploy your own authority on testnet](docs/DEPLOY-TESTNET.md)
-- [Native terminal setup and workflows](docs/TERMINAL.md)
-- [Product and first release](docs/PRODUCT.md)
-- [Architecture and trust boundaries](docs/ARCHITECTURE.md)
-- [Security and failure model](docs/SECURITY.md)
+- [Getting started](docs/GETTING-STARTED.md) · [Install and uninstall](docs/INSTALL.md) · [Deploy on testnet](docs/DEPLOY-TESTNET.md)
+- [Product](docs/PRODUCT.md) · [Architecture](docs/ARCHITECTURE.md) · [Security and failure model](docs/SECURITY.md)
+- [Terminal](docs/TERMINAL.md) · [Owner console](docs/OWNER-CONSOLE.md) · [Console design](docs/CONSOLE-DESIGN.md)
+- [Contract](docs/CONTRACTS.md) · [NEAR clients and transaction recovery](docs/NEAR-CLIENTS.md) · [Owner rotation](docs/OWNER-ROTATION.md)
+- [Memory writes](docs/MEMORY-WRITES.md) · [Backups and recall](docs/RECOVERY.md) · [Recovery kit](docs/RECOVERY-KIT.md)
+- [Missions](docs/MISSIONS.md) · [Specialist commissions](docs/COMMISSIONS.md)
+- [Provider setup](docs/INTEGRATIONS.md) · [Inference acceptance](docs/INFERENCE-ACCEPTANCE.md) · [References](docs/REFERENCES.md)
 - [Source selection and attribution](docs/MIGRATION.md)
-- [Execution order and release gates](plans/README.md)
-- [Verified integration references](docs/REFERENCES.md)
-- [Provider setup and live acceptance](docs/INTEGRATIONS.md)
-- [NEAR authority, accounting and settlement](docs/CONTRACTS.md)
-- [NEAR client setup and transaction recovery](docs/NEAR-CLIENTS.md)
-- [Owner backups, recovery and private recall](docs/RECOVERY.md)
-- [Portable encrypted owner recovery kit](docs/RECOVERY-KIT.md)
-- [Durable memory writes and interrupted-operation reconciliation](docs/MEMORY-WRITES.md)
-- [Owner-controlled runtime and memory-key rotation](docs/OWNER-ROTATION.md)
-- [Local owner wallet connection and controls](docs/OWNER-CONSOLE.md)
-- [Durable source missions and interrupted-work recovery](docs/MISSIONS.md)
-- [Signed specialist commissioning and encrypted delivery](docs/COMMISSIONS.md)
-- [Console design direction and visual review](docs/CONSOLE-DESIGN.md)
 
-## License and provenance
+</details>
 
-Apache-2.0. Adapted Sofer code is attributed in `NOTICE` and `migration/provenance.json`. The original source repository remains separate. Existing source is baseline; the hackathon submission must identify this repository's newly implemented NEAR integration and its exact diff.
+## Limits
+
+- Testnet only. No outside party has reviewed the contract, the encryption or the key store.
+- The contract account's full-access key can replace the contract's code, and with new code move its balance.
+- The owner decides disputes. A specialist has no protection against an owner who refuses to pay for good work.
+- Rotating the agent's key is not supported when the agent is its own NEAR account. The older layout supports it.
+- Recovery has been run only on the same machine, in a fresh process. A restore on a second physical device has not been done.
+- The model does not plan or write the research yet. Missions collect sources; the chat assistant can only read.
+- Streaming model replies failed their one live attempt and are off.
+- Approving an action from a real browser wallet has not been observed; the browser tests use a stand-in wallet.
+- A transaction that is dropped without a hash can stay "unknown" forever. Persistara will not resend it.
+- Contract builds are not reproducible: rebuilding the source gives different bytes, so a rebuilt contract will not match a deployed hash.
+- Not built: mainnet, memory search by meaning (recall is keyword search), a background service, Telegram, an open specialist market.
+- Not run yet: the whole demo in one sitting, and the five-run cost and speed measurement.
+
+[docs/SECURITY.md](docs/SECURITY.md) has the reasons, and [plans/README.md](plans/README.md) the remaining work.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE). Code adapted from Sofer is credited in [`NOTICE`](NOTICE).
